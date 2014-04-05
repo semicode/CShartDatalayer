@@ -1,0 +1,12 @@
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\bin\Release\CSharpDatalayer.exe
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\bin\Release\CSharpDatalayer.pdb
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\obj\x86\Release\ResolveAssemblyReference.cache
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\obj\x86\Release\CSharpDatalayer.exe
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\obj\x86\Release\CSharpDatalayer.pdb
+D:\temp\CSharpDatalayer\CSharpDatalayer\obj\x86\Release\CSharpDatalayer.exe
+D:\temp\CSharpDatalayer\CSharpDatalayer\obj\x86\Release\CSharpDatalayer.pdb
+F:\CSharpDatalayer\CSharpDatalayer\obj\x86\Release\CSharpDatalayer.exe
+F:\CSharpDatalayer\CSharpDatalayer\obj\x86\Release\CSharpDatalayer.pdb
+F:\CSharpDatalayer\CSharpDatalayer\obj\x86\Release\CSharpDatalayer.csprojResolveAssemblyReference.cache
+F:\CSharpDatalayer\CSharpDatalayer\bin\Release\CSharpDatalayer.exe
+F:\CSharpDatalayer\CSharpDatalayer\bin\Release\CSharpDatalayer.pdb

@@ -1,0 +1,5 @@
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\obj\x86\Debug\ResolveAssemblyReference.cache
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\bin\Debug\CSharpDatalayer.exe
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\bin\Debug\CSharpDatalayer.pdb
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\obj\x86\Debug\CSharpDatalayer.exe
+C:\Documents and Settings\Mile\My Documents\Visual Studio 2010\Projects\CSharpDatalayer\CSharpDatalayer\obj\x86\Debug\CSharpDatalayer.pdb
