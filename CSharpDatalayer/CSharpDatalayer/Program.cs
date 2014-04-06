@@ -52,15 +52,14 @@ namespace CSharpDatalayer {
         }
     }
 
-    public abstract class FieldsBase<T, F>
-        where T : Entity<T, F>
-        where F : FieldsBase<T, F>, new() {
+    public class FieldsBase<T>
+        where T : Entity<T> {
         //public delegate void ByRefAction(T instance, object value); 
         public delegate void ActionGetValue(T instance, System.Data.Common.DbDataReader dr);
         #region Members
         static Hashtable s_table = new Hashtable();
-      
-        private readonly string m_dbFieldName;
+        private Enum m_enumItem;
+        private string m_dbFieldName;
         private ulong m_modificationFlag = 0;
         private int m_ordinal = -1;
         public System.Reflection.PropertyInfo PropertyInfo { get; set; } 
@@ -72,19 +71,22 @@ namespace CSharpDatalayer {
         #endregion Members
 
         #region Proporties
-        public abstract IEnumerable<F> Values { get; }
         public int Ordinal {
-            get {
-                if (m_ordinal == -1) {
-                    F element = this as F;
-                    m_ordinal = Values.ToList().IndexOf(element);
+            get{
+                if (m_ordinal == -1){
+                    m_ordinal = Array.IndexOf(Enum.GetValues(m_enumItem.GetType()), m_enumItem);
+                    
+                    
                 }
                 return m_ordinal;
             }
-        }
+        }   
         public string DbFieldName {
             get {
                 return m_dbFieldName;
+            }
+            set {
+                m_dbFieldName = value;
             }
         }
         public ulong ModificationFlags  {
@@ -95,68 +97,88 @@ namespace CSharpDatalayer {
                 return m_modificationFlag;
             }
         }
+        public Enum EnumItem {
+            get {
+                return m_enumItem;
+            }
+        }
         #endregion Proporties
 
         #region Constructors
         public FieldsBase() {
         }
-        public FieldsBase(string dbFieldName) {
+        public FieldsBase(string dbFieldName, Enum el) {
             this.m_dbFieldName = dbFieldName;
+            this.m_enumItem = el;
         }
         #endregion Constructors
 
         #region Methods
         public override string ToString() {
-            System.Reflection.FieldInfo fi = this.GetType().GetFields().FirstOrDefault(it => it.DeclaringType == typeof(F) && (this as F).Equals(it.GetValue(this)));
-            return fi.Name;
+            return m_enumItem.ToString();
         }
         #endregion Methods
 
     }
-    public class Entity<T, F> 
-        where T : Entity<T, F> 
-        where F : FieldsBase<T, F>, new()
-        {
+    public abstract class Entity<T> 
+        where T : Entity<T> {
         private ulong m_modificationFlags = 0L;
         private string m_tableName;
-        private FieldsBase<T, F> m_primaryField;
-        public static F m_fields = null;
-        public static System.Collections.Hashtable m_dbFieldName2BaseField = null;
+        private FieldsBase<T> m_primaryField;
+        public static List<FieldsBase<T>> m_fields = null;
+        public static SortedDictionary<string, FieldsBase<T>> m_dbFieldName2BaseField = null;
 
-        
 
-        
+
+        protected abstract Type GetEnumType();
       
 
         
         private static T GetDefault<W>() {
             return default(T);
         }
-        
-      
-        public static void InializeFields() {
-            m_fields = new F();
-            m_dbFieldName2BaseField = new System.Collections.Hashtable();
-            foreach (FieldsBase<T,F> el in m_fields.Values) {
-                string PropertyName = el.ToString();
-                string fieldName = "m_" + PropertyName.Substring(0, 1).ToLower() + PropertyName.Substring(1, PropertyName.Length - 1);
-                el.FieldInfo = typeof(T).GetField(fieldName);
+
+        public static Q GetAttributeOfType<Q>(Enum enumVal) where Q : System.Attribute
+        {
+            var type = enumVal.GetType();
+            var memInfo = type.GetMember(enumVal.ToString());
+            var attributes = memInfo[0].GetCustomAttributes(typeof(Q), false);
+            return (Q)attributes[0];
+        }
+        public static void InializeFields(Type enumType) {
+            //m_fields = new FieldsBase<T, F>();
+            m_dbFieldName2BaseField = new SortedDictionary<string, FieldsBase<T>>();
+            m_fields = new List<FieldsBase<T>>();
+            foreach (Enum f in Enum.GetValues(enumType)) {
+                DBFieldNameAttribute dbfna = GetAttributeOfType<DBFieldNameAttribute>(f);
+                FieldsBase<T> el = new FieldsBase<T>(dbfna.DBFieldName, f);
+                string PropertyName = f.ToString();
+                el.PropertyInfo = typeof(T).GetProperty(PropertyName);
+                m_fields.Add(el);
                 m_dbFieldName2BaseField.Add(el.DbFieldName, el);
                 ulong modificationFlags = el.ModificationFlags;
             }
         }
-        public Entity (string tableName, FieldsBase<T, F> primaryField) {
+        public Entity (string tableName, FieldsBase<T> primaryField) {
             this.m_tableName = tableName;
             this.m_primaryField = primaryField;
-        }
-        public void Load(System.Data.Common.DbDataReader dr, T obj, FieldsBase<T, F>[] m_loadingFieldBase,int m_loadingFieldCount) {
-           
-            for (int i = 0; i < m_loadingFieldCount; i++) {
-                FieldsBase<T, F> el = m_loadingFieldBase[i];
-                el.ActionGetValueSetter((T)this, dr); 
+            if (m_dbFieldName2BaseField == null) {
+                InializeFields(GetEnumType());
             }
         }
-        public static DbType GetDBType(TypeCode code) {
+        public void Load(System.Data.Common.DbDataReader dr, T obj, FieldsBase<T>[] m_loadingFieldBase,int m_loadingFieldCount) {
+           
+            for (int i = 0; i < m_loadingFieldCount; i++) {
+                FieldsBase<T> el = m_loadingFieldBase[i];
+                el.ActionGetValueSetter((T)this, dr); 
+            }
+            m_modificationFlags = 0L;
+        }
+        public static DbType GetDBType(Type t) {
+            f (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(Nullable<>)) {
+                t = Nullable.GetUnderlyingType(t);
+            }
+            TypeCode code = Type.GetTypeCode(t);
             switch (code) {
                 case TypeCode.Boolean:
                     return DbType.Boolean;
@@ -190,25 +212,38 @@ namespace CSharpDatalayer {
             
             cmd.CommandType = CommandType.Text;
             
-            IEnumerable<FieldsBase<T, F>> elements = m_fields.Values;
+            IEnumerable<FieldsBase<T>> elements = m_fields;
             List<string> updateParts = new List<string>();
             int paramIndex = 0;
             StringBuilder updateStatement = new StringBuilder();
             updateStatement.Append("UPDATE ").Append(m_tableName).Append(" SET ");
-            foreach (FieldsBase<T, F> el in elements) {
-                if ((m_modificationFlags & el.ModificationFlags) > 0) {
-                    if (paramIndex > 0) {
+            foreach (FieldsBase<T> el in elements) {
+                if ((m_modificationFlags & el.ModificationFlags) > 0)
+                {
+                    object val = el.PropertyInfo.GetValue(this, null);
+                    
+                    if (paramIndex > 0)
+                    {
                         updateStatement.Append(", ");
                     }
+                    if (val == null) {
+                        updateStatement.Append(el.DbFieldName).Append(" = NULL");
+                    } else {
+
+                        IDbDataParameter param = cmd.CreateParameter();
                     
-                    IDbDataParameter param = cmd.CreateParameter();
-                    param.DbType = GetDBType(Type.GetTypeCode(el.FieldInfo.FieldType));
-                    param.Value = el.FieldInfo.GetValue(this); ;
-                    param.ParameterName = el.DbFieldName;
-                    cmd.Parameters.Add(param);
-                    StringBuilder str = new StringBuilder();
-                    updateStatement.Append(el.DbFieldName).Append("=");
-                    updateStatement.Append("@").Append(el.DbFieldName);
+                        param.Value = val;
+                        if (param.Value == null){
+                            param.DbType = DbType.
+                        } else{
+                            param.DbType = GetDBType(el.PropertyInfo.PropertyType);
+                        }
+                        param.ParameterName = el.DbFieldName;
+                        cmd.Parameters.Add(param);
+                        StringBuilder str = new StringBuilder();
+                        updateStatement.Append(el.DbFieldName).Append("=");
+                        updateStatement.Append("@").Append(el.DbFieldName);
+                    }
                     paramIndex++;
                 }
             }
@@ -220,7 +255,7 @@ namespace CSharpDatalayer {
             object primaryKey = m_primaryField.FieldInfo.GetValue(this);
             updateStatement.Append(m_primaryField.DbFieldName).Append("=");
             IDbDataParameter primaryKeyParam = cmd.CreateParameter();
-            primaryKeyParam.DbType = GetDBType(Type.GetTypeCode(m_primaryField.FieldInfo.FieldType));
+            primaryKeyParam.DbType = GetDBType(m_primaryField.PropertyInfo.PropertyType);
             primaryKeyParam.Value = m_primaryField.FieldInfo.GetValue(this);
             primaryKeyParam.ParameterName = m_primaryField.DbFieldName;
             cmd.Parameters.Add(primaryKeyParam);
@@ -232,18 +267,24 @@ namespace CSharpDatalayer {
         public void GetInsertStatment(IDbCommand cmd) {
             StringBuilder dbFields = new StringBuilder();
             StringBuilder dbValues = new StringBuilder();
-            IEnumerable<FieldsBase<T, F>> elements = m_fields.Values;
+            IEnumerable<FieldsBase<T>> elements = m_fields;
             StringBuilder insertStatement = new StringBuilder();
             int paramIndex = 0;
-            foreach (FieldsBase<T, F> el in elements.Where(it=> it != m_primaryField)) {
+            foreach (FieldsBase<T> el in elements.Where(it=> it != m_primaryField)) {
+                object val = el.PropertyInfo.GetValue(this, null);
+                if (val == null) {
+                    continue;
+                }
                 if (paramIndex > 0) {
                     dbFields.Append(", ");
                     dbValues.Append(", ");
                 }
-                object val = el.FieldInfo.GetValue(this);
+              
+               
                 IDataParameter param = cmd.CreateParameter();
                 param.ParameterName = el.DbFieldName;
                 param.Value = val;
+                param.DbType = GetDBType(el.PropertyInfo.PropertyType);
                 dbFields.Append(el.DbFieldName);
                 dbValues.Append("@").Append(el.DbFieldName);
                 
@@ -255,26 +296,28 @@ namespace CSharpDatalayer {
             cmd.CommandText = insertStatement.ToString();
             
         }
-        protected void SetModificationFlags(FieldsBase<T, F> field) {
-            m_modificationFlags |= field.ModificationFlags;
+        protected void SetModificationFlags(Enum field) {
+
+
+            m_modificationFlags |= m_fields.FirstOrDefault(it => it.EnumItem == field).ModificationFlags;
         }
         
     }
 
-    public class EntityCollection<T, F> : List<T> where T : Entity<T, F>, new () where F: FieldsBase<T, F>, new()  {
-        private static FieldsBase<T, F>.ActionGetValue Build(System.Reflection.FieldInfo field, int ordinal) {
+    public class EntityCollection<T> : List<T> where T : Entity<T>, new ()  {
+        private static FieldsBase<T>.ActionGetValue Build(System.Reflection.PropertyInfo field, int ordinal) {
             ParameterExpression instance = Expression.Parameter(typeof(T), "instance");
             ParameterExpression dbDataReader = Expression.Parameter(typeof(System.Data.Common.DbDataReader), "dr");
             ConstantExpression ordinalExpression = Expression.Constant(ordinal, typeof(int));
 
 
-            Expression<FieldsBase<T, F>.ActionGetValue> expr =
-                Expression.Lambda<FieldsBase<T, F>.ActionGetValue>(
+            Expression<FieldsBase<T>.ActionGetValue> expr =
+                Expression.Lambda<FieldsBase<T>.ActionGetValue>(
                     Expression.Assign(
-                        Expression.Field(instance, field),
+                        Expression.Property(instance, field),
                         Expression.Condition(Expression.Call(dbDataReader, DBDataReader_IsDbNull, ordinalExpression),
-                                             Expression.Default(field.FieldType), 
-                                             Expression.Call(dbDataReader, GetMethodFromType(field.FieldType), ordinalExpression)
+                                             Expression.Default(field.PropertyType), 
+                                             Expression.Call(dbDataReader, GetMethodFromType(field.PropertyType), ordinalExpression)
                         )
                     ),
                     instance,
@@ -282,10 +325,10 @@ namespace CSharpDatalayer {
 
             return expr.Compile();
         }
-        private static Hashtable typeCode2Method = null;
+        private static SortedDictionary<TypeCode, System.Reflection.MethodInfo> typeCode2Method = null;
         private static System.Reflection.MethodInfo GetMethodFromType(Type t) {
             if (typeCode2Method == null) {
-                typeCode2Method = new Hashtable();
+                typeCode2Method = new SortedDictionary<TypeCode, System.Reflection.MethodInfo>();
                 typeCode2Method.Add(TypeCode.Boolean, DBDataReader_GetBoolean);
                 typeCode2Method.Add(TypeCode.Byte, DBDataReader_GetByte);
                 typeCode2Method.Add(TypeCode.Int16, DBDataReader_GetInt16);
@@ -295,6 +338,11 @@ namespace CSharpDatalayer {
                 typeCode2Method.Add(TypeCode.Double, DBDataReader_GetDouble);
                 typeCode2Method.Add(TypeCode.Decimal, DBDataReader_GetDecimal);
                 typeCode2Method.Add(TypeCode.String, DBDataReader_GetString);
+                
+            }
+            
+            if (t.IsGenericType && t.GetGenericTypeDefinition() == typeof(Nullable<>)) {
+                t = Nullable.GetUnderlyingType(t);
             }
             return (System.Reflection.MethodInfo)typeCode2Method[Type.GetTypeCode(t)];
         }
@@ -314,17 +362,17 @@ namespace CSharpDatalayer {
             
             
             //int loadingFieldCount = dr.FieldCount;
-            List<FieldsBase<T, F>> loadingFieldBasePrep = new List<FieldsBase<T, F>>();
+            List<FieldsBase<T>> loadingFieldBasePrep = new List<FieldsBase<T>>();
 
            
-            foreach (KeyValuePair<string, FieldsBase<T, F>> kv in Entity<T, F>.m_dbFieldName2BaseField) {
+            foreach (KeyValuePair<string, FieldsBase<T>> kv in Entity<T>.m_dbFieldName2BaseField) {
 
                 try
                 {
                     int ordinal = dr.GetOrdinal(kv.Key);
 
 
-                    kv.Value.ActionGetValueSetter = Build(kv.Value.FieldInfo, ordinal);
+                    kv.Value.ActionGetValueSetter = Build(kv.Value.PropertyInfo, ordinal);
                     loadingFieldBasePrep.Add(kv.Value);
                 }
                 catch (IndexOutOfRangeException missfield)
@@ -333,7 +381,7 @@ namespace CSharpDatalayer {
                 }
             }
 
-            FieldsBase<T, F>[] loadingFieldBase = loadingFieldBasePrep.ToArray();
+            FieldsBase<T>[] loadingFieldBase = loadingFieldBasePrep.ToArray();
             int loadingFieldCount = loadingFieldBase.Length;
             
             while(dr.Read()) {
@@ -520,7 +568,82 @@ namespace CSharpDatalayer {
     
     public class TaskCollection : EntityCollection<Task, Task.Fields> {
     }*/
-    public class TmpTable : Entity<TmpTable, TmpTable.Fields> {
+    [AttributeUsage(AttributeTargets.Field)]
+    public class DBFieldNameAttribute : Attribute
+    {
+
+
+        // Summary:
+        //     Initializes a new instance of the DBFieldAttributee
+        //     class with no parameters.
+        public DBFieldNameAttribute()
+        {
+        }
+
+        //
+        // Summary:
+        //     Initializes a new instance of the DBFieldAttribute
+        //     class with a description.
+        //
+        // Parameters:
+        //   description:
+        //     The description text.
+        [System.Runtime.TargetedPatchingOptOut("Performance critical to inline this type of method across NGen image boundaries")]
+        public DBFieldNameAttribute(string dbFieldName)
+        {
+            this.DBFieldNameValue = dbFieldName;
+        }
+
+        // Summary:
+        //     Gets the description stored in this attribute.
+        //
+        // Returns:
+        //     The description stored in this attribute.
+        public virtual string DBFieldName { get {
+                return DBFieldNameValue;
+            }
+        }
+        //
+        // Summary:
+        //     Gets or sets the string stored as the description.
+        //
+        // Returns:
+        //     The string stored as the description. The default value is an empty string
+        //     ("").
+        protected string DBFieldNameValue { get; set; }
+
+        // Summary:
+        //     Returns whether the value of the given object is equal to the current System.ComponentModel.DescriptionAttribute.
+        //
+        // Parameters:
+        //   obj:
+        //     The object to test the value equality of.
+        //
+        // Returns:
+        //     true if the value of the given object is equal to that of the current; otherwise,
+        //     false.
+        public override bool Equals(object obj)
+        {
+            return (obj is DBFieldNameAttribute) && DBFieldNameValue == (obj as DBFieldNameAttribute).DBFieldNameValue;
+        }
+        public override int GetHashCode()
+        {
+            return DBFieldNameValue.GetHashCode();
+        }
+        //
+        // Summary:
+        //     Returns a value indicating whether this is the default System.ComponentModel.DescriptionAttribute
+        //     instance.
+        //
+        // Returns:
+        //     true, if this is the default System.ComponentModel.DescriptionAttribute instance;
+        //     otherwise, false.
+        public override bool IsDefaultAttribute() {
+            return false;
+        }
+    }
+
+    public class TmpTable : Entity<TmpTable> {
         #region Fields
         
         public double m_lng;
@@ -602,11 +725,29 @@ namespace CSharpDatalayer {
         #endregion Proporties
         #region Constructor
         public TmpTable()
-            : base("tmpTable", Fields.Pc4Code) {
+            : base("tmpTable", null) {
         }
         #endregion Constructor
         #region Fields;
-        public class Fields : FieldsBase<TmpTable,Fields> {
+        public enum Fields {
+            [DBFieldName("lng")]
+            Lng,
+            [DBFieldName("lat")]
+            Lat,
+            [DBFieldName("dum")]
+            Dum,
+            [DBFieldName("pc4code")]
+            Pc4Code,
+            [DBFieldName("code")]
+            Code,
+            [DBFieldName("pongo")]
+            Pongo
+        }
+        protected override Type GetEnumType()
+        {
+            return typeof(Fields);
+        }
+        /*public class Fields : FieldsBase<TmpTable,Fields> {
             public Fields() : base(string.Empty) { }
             private Fields(string dbFieldName) : base(dbFieldName) { }
             public static readonly Fields Lng = new Fields("lng");
@@ -627,10 +768,10 @@ namespace CSharpDatalayer {
 
                 }
             }
-        }
+        }*/
         #endregion Fields
     }
-    public class TmpTableCollection : EntityCollection<TmpTable, TmpTable.Fields> {
+    public class TmpTableCollection : EntityCollection<TmpTable> {
         public TmpTableCollection() {
         }
     }
@@ -764,7 +905,6 @@ namespace CSharpDatalayer {
             System.Data.SqlClient.SqlDataReader reader = cmd.ExecuteReader();
             Console.WriteLine("Execute rader " + s.Elapsed);
             s.Restart();
-            TmpTable.InializeFields();
             Console.WriteLine("Initalze fields " + s.Elapsed);
             s.Restart();
             TmpTableCollection collection = new TmpTableCollection();
