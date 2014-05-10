@@ -4,33 +4,48 @@ using System.Linq;
 using System.Text;
 using System.Data;
 
-namespace CSharpDatalayer
-{
-    public abstract class Entity<T> 
+namespace CSharpDatalayer {
+    public abstract class Entity<T>
         where T : Entity<T> {
         private ulong m_modificationFlags = 0L;
         private string m_tableName;
-        private FieldsBase<T> m_primaryField;
+        private static FieldsBase<T> m_primaryField;
         public static List<FieldsBase<T>> m_fields = null;
         public static SortedDictionary<string, FieldsBase<T>> m_dbFieldName2BaseField = null;
 
 
 
         protected abstract Type GetEnumType();
-      
 
-        
+        public static List<FieldsBase<T>> FieldsInfo {
+            get {
+                return m_fields;
+            }
+        }
+        public object GetValue(Enum field) {
+            FieldsBase<T> fieldInfo = m_fields.FirstOrDefault(it => StringComparer.InvariantCulture.Compare(it.EnumItem.ToString(), field.ToString()) == 0);
+            return fieldInfo.PropertyInfo.GetValue(this, new object[0]);
+        }
+
+
         private static T GetDefault<W>() {
             return default(T);
         }
 
-        public static Q GetAttributeOfType<Q>(Enum enumVal) where Q : System.Attribute
-        {
+        public static Q GetAttributeOfType<Q>(Enum enumVal) where Q : System.Attribute {
             var type = enumVal.GetType();
             var memInfo = type.GetMember(enumVal.ToString());
             var attributes = memInfo[0].GetCustomAttributes(typeof(Q), false);
             return (Q)attributes[0];
         }
+        public static bool HasAttributeOfType<Q>(Enum enumVal) where Q : System.Attribute {
+            var type = enumVal.GetType();
+            var memInfo = type.GetMember(enumVal.ToString());
+            var attributes = memInfo[0].GetCustomAttributes(typeof(Q), false);
+            return attributes.Length > 0;
+        }
+
+
         public static void InializeFields(Type enumType) {
             //m_fields = new FieldsBase<T, F>();
             m_dbFieldName2BaseField = new SortedDictionary<string, FieldsBase<T>>();
@@ -45,19 +60,33 @@ namespace CSharpDatalayer
                 ulong modificationFlags = el.ModificationFlags;
             }
         }
-        public Entity (string tableName, Enum primField) {
-            this.m_tableName = tableName;
+        public Entity(string tableName) {
+       
             //this.m_primaryField = primaryField;
-            if (m_dbFieldName2BaseField == null) {
+            if (Entity<T>.m_fields == null) {
+                this.m_tableName = tableName;
                 InializeFields(GetEnumType());
+            
+                Enum primKey = null;
+
+                foreach (Enum f in Enum.GetValues(GetEnumType())) {
+                    if (HasAttributeOfType<PrimaryKeyAttribute>(f)) {
+                        primKey = f;
+                    }
+                }
+                if (primKey != null) {
+                    Entity<T>.m_primaryField = m_fields.FirstOrDefault(it => StringComparer.InvariantCulture.Compare(it.EnumItem.ToString(), primKey.ToString()) == 0);
+                }
             }
-            m_primaryField = m_fields.FirstOrDefault(it => StringComparer.InvariantCulture.Compare(it.EnumItem.ToString(), primField.ToString()) == 0);
         }
-        public void Load(System.Data.Common.DbDataReader dr, T obj, FieldsBase<T>[] m_loadingFieldBase,int m_loadingFieldCount) {
-           
+        public void SetFields(string tableName, List<FieldsBase<T>> fields, FieldsBase<T> primaryField) {
+            this.m_tableName = tableName;
+        }
+        public void Load(System.Data.Common.DbDataReader dr, T obj, FieldsBase<T>[] m_loadingFieldBase, int m_loadingFieldCount) {
+
             for (int i = 0; i < m_loadingFieldCount; i++) {
                 FieldsBase<T> el = m_loadingFieldBase[i];
-                el.ActionGetValueSetter((T)this, dr); 
+                el.ActionGetValueSetter((T)this, dr);
             }
             m_modificationFlags = 0L;
         }
@@ -96,21 +125,19 @@ namespace CSharpDatalayer
             }
         }
         public void GetUpdateStatement(IDbCommand cmd) {
-            
+
             cmd.CommandType = CommandType.Text;
-            
+
             IEnumerable<FieldsBase<T>> elements = m_fields;
             List<string> updateParts = new List<string>();
             int paramIndex = 0;
             StringBuilder updateStatement = new StringBuilder();
             updateStatement.Append("UPDATE ").Append(m_tableName).Append(" SET ");
             foreach (FieldsBase<T> el in elements) {
-                if ((m_modificationFlags & el.ModificationFlags) > 0)
-                {
+                if ((m_modificationFlags & el.ModificationFlags) > 0) {
                     object val = el.PropertyInfo.GetValue(this, null);
-                    
-                    if (paramIndex > 0)
-                    {
+
+                    if (paramIndex > 0) {
                         updateStatement.Append(", ");
                     }
                     if (val == null) {
@@ -118,12 +145,12 @@ namespace CSharpDatalayer
                     } else {
 
                         IDbDataParameter param = cmd.CreateParameter();
-                    
+
                         param.Value = val;
                         //if (param.Value == null){
                         //    param.DbType = DbType
                         //} else{
-                            param.DbType = GetDBType(el.PropertyInfo.PropertyType);
+                        param.DbType = GetDBType(el.PropertyInfo.PropertyType);
                         //}
                         param.ParameterName = el.DbFieldName;
                         cmd.Parameters.Add(param);
@@ -134,7 +161,7 @@ namespace CSharpDatalayer
                     paramIndex++;
                 }
             }
-  
+
             updateStatement.Append(" WHERE ");
             if (m_primaryField.PropertyInfo == null) {
                 m_primaryField.PropertyInfo = this.GetType().GetProperty(m_primaryField.ToString());
@@ -149,7 +176,7 @@ namespace CSharpDatalayer
             updateStatement.Append("@").Append(m_primaryField.DbFieldName);
             cmd.CommandText = updateStatement.ToString();
             return;
-           
+
         }
         public void GetInsertStatment(IDbCommand cmd) {
             StringBuilder dbFields = new StringBuilder();
@@ -157,7 +184,7 @@ namespace CSharpDatalayer
             IEnumerable<FieldsBase<T>> elements = m_fields;
             StringBuilder insertStatement = new StringBuilder();
             int paramIndex = 0;
-            foreach (FieldsBase<T> el in elements.Where(it=> it != m_primaryField)) {
+            foreach (FieldsBase<T> el in elements.Where(it => it != m_primaryField)) {
                 object val = el.PropertyInfo.GetValue(this, null);
                 if (val == null) {
                     continue;
@@ -166,29 +193,29 @@ namespace CSharpDatalayer
                     dbFields.Append(", ");
                     dbValues.Append(", ");
                 }
-              
-               
+
+
                 IDataParameter param = cmd.CreateParameter();
                 param.ParameterName = el.DbFieldName;
                 param.Value = val;
                 param.DbType = GetDBType(el.PropertyInfo.PropertyType);
                 dbFields.Append(el.DbFieldName);
                 dbValues.Append("@").Append(el.DbFieldName);
-                
+
                 paramIndex++;
             }
-            
+
             insertStatement.Append("INSERT INTO ").Append(m_tableName).Append(" ").Append(dbFields).Append(") VALUES (").Append(dbValues).Append(")");
-            
+
             cmd.CommandText = insertStatement.ToString();
-            
+
         }
         protected void SetModificationFlags(Enum field) {
 
 
-            m_modificationFlags |= m_fields.FirstOrDefault(it => StringComparer.InvariantCulture.Compare(it.EnumItem.ToString(),field.ToString())== 0).ModificationFlags;
+            m_modificationFlags |= m_fields.FirstOrDefault(it => StringComparer.InvariantCulture.Compare(it.EnumItem.ToString(), field.ToString()) == 0).ModificationFlags;
         }
-        
+
     }
 
 }
